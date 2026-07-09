@@ -1,32 +1,50 @@
-# React + TypeScript + Vite
+# NOC // Centralized DevOps & Security Observability Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+A high-fidelity, slate-900 themed single-page DevOps and Security NOC Observability Dashboard built with **React (TypeScript)**, **Tailwind CSS v4**, **Lucide Icons**, and **Recharts**.
 
-Currently, two official plugins are available:
+The application is deployed using a scaled **Docker Multi-Stage Build** and load-balanced using **Nginx (Round-Robin)**. It features real Nginx log integrations and automated CI/CD workflows.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## 🏛️ System Architecture
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```mermaid
+graph TD
+    Client[Browser Client] -->|Port 8082| NginxLB[Nginx Load Balancer]
+    NginxLB -->|Round-Robin Proxy| WebNode1[Web Node 1: app-1]
+    NginxLB -->|Round-Robin Proxy| WebNode2[Web Node 2: app-2]
+    NginxLB -->|Saves Logs| LogFile[access.log]
+    Client -->|Fetches real-time log data| LogFile
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+- **Nginx Load Balancer (Port 8082)**: Accepts incoming user connections, routes them dynamically using Round Robin, appends upstream routing header headers (`X-Upstream-Address`), and logs all operations.
+- **Web Node 1 & 2 (Ports internal)**: Standalone Docker instances serving static React production assets.
+
+---
+
+## ⚡ Quick Start (Docker Compose)
+
+Launch the entire load-balanced cluster (3 containers: 1 LB, 2 Web apps) with a single command:
+
+```bash
+# Build and run the cluster in background
+docker compose up -d --build
+```
+
+Access the dashboard at: **[http://localhost:8082](http://localhost:8082)**
+
+---
+
+## 🛠️ Dashboard Interactive Simulations
+- **Traffic Injection**: Use the **NORMAL (GET)** and **ATTACK (403 WAF)** buttons in the top right to generate live, network-level HTTP requests that bypass caches. Watch the TPS and WAF Block charts spike and observe Nginx log outputs in the terminal stream in real-time.
+- **Node Failure & Recovery**: Click **SIMULATE CRASH** to flatline servers and force Kubernetes pods into `CrashLoopBackOff`. Click **REDEPLOY** to initiate the deployment rollback stabilization sequence.
+
+---
+
+## 🤖 CI/CD Automation (GitHub Actions)
+The repository is integrated with GitHub Actions. On every push to the `main` or `master` branches, the pipeline:
+1. Installs dependencies and verifies TypeScript and Tailwind compilation.
+2. Compiles a production bundle.
+3. Fires a POST webhook to Discord notifying team members of successful deployment.
+
+*Make sure to configure your repository secrets with `DISCORD_WEBHOOK` key.*
