@@ -12,7 +12,12 @@ import {
   Globe,
   Lock,
   Wifi,
-  Check
+  Check,
+  Cpu,
+  Clock,
+  ArrowRight,
+  Database,
+  X
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -40,6 +45,7 @@ interface LogEntry {
   wafStatus: 'PASS' | 'BLOCKED';
   wafRule?: string;
   geo: string;
+  userAgent?: string;
 }
 
 interface ServerMetrics {
@@ -76,6 +82,15 @@ interface TimelineEvent {
   actionRequired?: boolean;
 }
 
+interface TraceSpan {
+  name: string;
+  service: string;
+  durationMs: number;
+  startOffsetMs: number;
+  status: 'success' | 'error';
+  info: string;
+}
+
 export default function App() {
   // --- STATE ---
   const [isFailureSimulated, setIsFailureSimulated] = useState(false);
@@ -86,6 +101,9 @@ export default function App() {
   const [isNginxOffline, setIsNginxOffline] = useState(false);
   const [servedByNode, setServedByNode] = useState<string>('Detecting Upstream...');
   const fetchFailureCount = useRef(0);
+
+  // Distributed Tracing State (OpenTelemetry modal)
+  const [selectedLogForTrace, setSelectedLogForTrace] = useState<LogEntry | null>(null);
 
   // Traffic generation states (for UI visual feedback)
   const [trafficMode, setTrafficMode] = useState<'idle' | 'normal' | 'attack'>('idle');
@@ -175,7 +193,6 @@ export default function App() {
   // --- FETCH REAL NGINX ACCESS LOGS ---
   const fetchRealLogs = async () => {
     try {
-      // Append cache buster to log check as well to prevent HTTP caching of log files
       const res = await fetch(`/logs/access.log?cb=${Date.now()}`, { cache: 'no-store' });
       if (!res.ok) throw new Error("Access log file missing or unreachable.");
       
@@ -254,10 +271,11 @@ export default function App() {
 
   // Helper to parse Nginx logs
   const parseNginxLogLine = (line: string): LogEntry | null => {
-    const match = line.match(/^([\d.]+|localhost) \S+ \S+ \[(.*?)\] "(GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH) (.*?) HTTP\/.*?" (\d+) (\d+)/);
+    // regex matching IP, timestamp, method, path, status, size, referer, useragent
+    const match = line.match(/^([\d.]+|localhost) \S+ \S+ \[(.*?)\] "(GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH) (.*?) HTTP\/.*?" (\d+) (\d+) "(.*?)" "(.*?)"/);
     if (!match) return null;
 
-    const [, ip, timestampStr, method, path, statusStr] = match;
+    const [, ip, timestampStr, method, path, statusStr, , , ua] = match;
     const status = parseInt(statusStr, 10);
     
     // Extract HH:MM:SS
@@ -290,15 +308,15 @@ export default function App() {
       status,
       wafStatus,
       wafRule,
-      geo
+      geo,
+      userAgent: ua
     };
   };
 
-  // Upstream Node Verification (fetches root GET with cache-buster to force network round-robin)
+  // Upstream Node Verification
   const checkServedByNode = async () => {
     if (isNginxOffline) return;
     try {
-      // Use random cache-buster parameter and no-store headers to force Nginx proxy routing
       const res = await fetch(`/?cb=${Date.now()}-${Math.random()}`, { method: 'GET', cache: 'no-store' });
       const node = res.headers.get('X-Upstream-Address');
       if (node) {
@@ -348,13 +366,11 @@ export default function App() {
       if (count >= maxRequests) {
         clearInterval(interval);
         setTrafficMode('idle');
-        // Instantly update upstream address after injecting traffic
         checkServedByNode();
         return;
       }
 
       try {
-        // Generate a random cache buster to force network requests to bypass all caches
         const cacheBuster = `cb=${Date.now()}-${Math.random()}`;
 
         if (mode === 'attack') {
@@ -501,7 +517,73 @@ export default function App() {
     }, 300);
   };
 
-  // Computation
+  // --- MERGE DISTRIBUTED TRACING SPANS SIMULATION ---
+  const generateSpansForLog = (log: LogEntry): TraceSpan[] => {
+    const isWafBlock = log.wafStatus === 'BLOCKED';
+    
+    // Normal delays or error delays
+    const networkDelay = 2;
+    const proxyDelay = isWafBlock ? 1 : 3;
+    const appDelay = isWafBlock ? 0 : log.status === 404 ? 4 : 12;
+    const dbDelay = isWafBlock || log.status === 404 ? 0 : 8;
+
+    const spans: TraceSpan[] = [
+      {
+        name: `${log.method} ${log.path}`,
+        service: 'client-ingress-router',
+        durationMs: networkDelay + proxyDelay + appDelay + dbDelay + 3,
+        startOffsetMs: 0,
+        status: log.status >= 400 ? 'error' : 'success',
+        info: `Client Request from ${log.ip} (${log.geo})`
+      },
+      {
+        name: 'Proxy Route Request',
+        service: 'nginx-load-balancer',
+        durationMs: proxyDelay + appDelay + dbDelay + 1,
+        startOffsetMs: networkDelay,
+        status: isWafBlock ? 'error' : 'success',
+        info: isWafBlock 
+          ? `Blocked by WAF policy rules. Rejected with HTTP 403.` 
+          : `Forwarded via upstream group [web_servers] to ${servedByNode}`
+      }
+    ];
+
+    if (!isWafBlock) {
+      spans.push({
+        name: 'Serve Application Assets',
+        service: 'app-backend-node',
+        durationMs: appDelay + dbDelay,
+        startOffsetMs: networkDelay + proxyDelay,
+        status: log.status === 404 ? 'error' : 'success',
+        info: log.status === 404 
+          ? `Path not found inside Nginx docroot. Responded HTTP 404.` 
+          : `Rendered client-side HTML bundle. Active node host: ${servedByNode}`
+      });
+
+      if (log.status !== 404) {
+        spans.push({
+          name: 'Query Session Store',
+          service: 'redis-session-store',
+          durationMs: 2,
+          startOffsetMs: networkDelay + proxyDelay + 2,
+          status: 'success',
+          info: `Validated user profile cache session. Hit rate: 100%`
+        });
+
+        spans.push({
+          name: 'SELECT user_credentials',
+          service: 'postgres-database-query',
+          durationMs: dbDelay,
+          startOffsetMs: networkDelay + proxyDelay + appDelay - dbDelay,
+          status: 'success',
+          info: `Resolved user role mapping table. DB query latency: ${dbDelay}ms`
+        });
+      }
+    }
+
+    return spans;
+  };
+
   const activeThreatLevel = trafficMode === 'attack' ? 'CRITICAL' : isFailureSimulated ? 'ELEVATED' : 'STABLE';
   const runningPodsCount = pods.filter(p => p.status === 'Running').length;
   const clusterHealthScore = Math.floor((runningPodsCount / pods.length) * 100);
@@ -804,19 +886,24 @@ export default function App() {
               </h2>
             </div>
             <span className="text-[10px] font-mono border border-cyber-blue/30 text-cyber-blue px-2 py-0.5 rounded uppercase bg-cyber-blue/5">
-              STREAMING
+              CLICK TO TRACE
             </span>
           </div>
 
           {/* CLI Logs Screen */}
           <div 
             ref={logContainerRef}
-            className="flex-1 overflow-y-auto font-mono text-[10px] space-y-2.5 pr-2 custom-scrollbar bg-black/40 border border-slate-900 rounded p-3 select-all"
+            className="flex-1 overflow-y-auto font-mono text-[10px] space-y-2.5 pr-2 custom-scrollbar bg-black/40 border border-slate-900 rounded p-3 select-none"
           >
             {logs.map((log) => (
-              <div key={log.id} className="border-b border-slate-900/60 pb-1.5 leading-relaxed">
+              <div 
+                key={log.id} 
+                onClick={() => setSelectedLogForTrace(log)}
+                className="border-b border-slate-900/60 pb-1.5 leading-relaxed cursor-pointer hover:bg-cyber-blue/5 p-1 rounded transition-colors group"
+                title="Click to view distributed Jaeger trace timeline"
+              >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-slate-500">{log.timestamp}</span>
+                  <span className="text-slate-500 group-hover:text-cyber-blue">{log.timestamp}</span>
                   <span className={`px-1 rounded text-[9px] font-bold ${
                     log.wafStatus === 'BLOCKED' ? 'bg-cyber-red/20 text-cyber-red border border-cyber-red/30' : 'bg-cyber-green/10 text-cyber-green border border-cyber-green/20'
                   }`}>
@@ -844,6 +931,10 @@ export default function App() {
                     <span>RULE FIRED // {log.wafRule}</span>
                   </div>
                 )}
+                <div className="mt-1 text-[8px] text-slate-600 flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <span>OpenTelemetry ID: trace_{log.id}</span>
+                  <span className="text-cyber-blue flex items-center gap-0.5">INSPECT TRACE <ArrowRight className="h-2 w-2" /></span>
+                </div>
               </div>
             ))}
             {logs.length === 0 && !isNginxOffline && (
@@ -864,7 +955,7 @@ export default function App() {
 
       {/* LOWER SECTION: INFRASTRUCTURE (L3/L4) & KUBERNETES POD CLUSTER */}
       <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* Kubernetes Cluster Monitor (2/3 width) */}
+        {/* Kubernetes Cluster Monitor */}
         <div className="xl:col-span-2 tech-panel rounded-xl p-5 flex flex-col justify-between h-[360px]">
           <div>
             <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
@@ -940,7 +1031,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* Infrastructure Row (L3/L4) (1/3 width) */}
+        {/* Infrastructure Row */}
         <div className="tech-panel rounded-xl p-5 flex flex-col h-[360px] justify-between">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-2">
             <div className="flex items-center gap-2">
@@ -955,7 +1046,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* 3 Servers CPUs / RAMs */}
+          {/* 3 Servers */}
           <div className="space-y-4 flex-1 mt-2 overflow-y-auto pr-1">
             {servers.map((srv) => {
               const displayStatus = isNginxOffline ? 'crashed' : srv.status;
@@ -1124,6 +1215,144 @@ export default function App() {
           })}
         </div>
       </section>
+
+      {/* OPENTELEMETRY / JAEGER DISTRIBUTED TRACE MODAL */}
+      {selectedLogForTrace && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
+          <div className="relative w-full max-w-4xl bg-slate-950 border border-cyber-blue/30 rounded-xl shadow-2xl p-6 overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="scanline" />
+            
+            {/* Modal Header */}
+            <div className="flex justify-between items-start border-b border-slate-800 pb-4 mb-4">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-mono text-cyber-blue mb-1">
+                  <Clock className="h-3.5 w-3.5" />
+                  <span>OPENTELEMETRY TRACE RECONSTRUCTION // Trace ID: otel_trace_{selectedLogForTrace.id}</span>
+                </div>
+                <h3 className="text-lg font-bold font-mono tracking-tight text-slate-100 flex items-center gap-2">
+                  <span className={`px-1.5 py-0.5 rounded text-xs font-bold uppercase ${
+                    selectedLogForTrace.method === 'GET' ? 'bg-cyber-blue/20 text-cyber-blue' : 'bg-cyber-purple/20 text-cyber-purple'
+                  }`}>
+                    {selectedLogForTrace.method}
+                  </span>
+                  <span>{selectedLogForTrace.path}</span>
+                  <span className={`text-sm px-1.5 py-0.2 rounded font-bold ${
+                    selectedLogForTrace.status >= 200 && selectedLogForTrace.status < 300
+                      ? 'bg-cyber-green/25 text-cyber-green'
+                      : 'bg-cyber-red/25 text-cyber-red'
+                  }`}>
+                    {selectedLogForTrace.status}
+                  </span>
+                </h3>
+              </div>
+              <button 
+                onClick={() => setSelectedLogForTrace(null)}
+                className="p-1 hover:bg-slate-900 border border-transparent hover:border-slate-800 rounded-lg text-slate-400 hover:text-slate-100 transition-all"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Request Summary */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-900/40 border border-slate-900 rounded-lg p-3 text-xs font-mono text-slate-400 mb-6">
+              <div>
+                <span className="text-slate-500 block text-[9px]">CLIENT ADDRESS</span>
+                <span className="text-cyber-blue font-semibold">{selectedLogForTrace.ip}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block text-[9px]">GEOLOCATION</span>
+                <span className="text-slate-200">{selectedLogForTrace.geo}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block text-[9px]">ROUTE NODE</span>
+                <span className="text-slate-200">{servedByNode}</span>
+              </div>
+              <div className="truncate" title={selectedLogForTrace.userAgent}>
+                <span className="text-slate-500 block text-[9px]">CLIENT AGENT</span>
+                <span className="text-slate-200">{selectedLogForTrace.userAgent || 'Mozilla/5.0'}</span>
+              </div>
+            </div>
+
+            {/* Gantt Chart Spans (Distributed Tracing visualization) */}
+            <div className="flex-1 overflow-y-auto space-y-5 pr-2 custom-scrollbar">
+              <div className="border border-slate-900 bg-slate-900/10 rounded-lg p-4">
+                <div className="flex justify-between items-center text-[10px] font-mono text-slate-500 border-b border-slate-900 pb-2 mb-4">
+                  <span>SPAN TIMELINE (SERVICE BREAKDOWN)</span>
+                  <span>TOTAL REQUEST LATENCY</span>
+                </div>
+
+                <div className="space-y-4">
+                  {generateSpansForLog(selectedLogForTrace).map((span, idx) => {
+                    // Calculate visual bar percentage width and start offsets
+                    // Max trace width represents ~25ms total scaling
+                    const maxScalingDuration = 30; 
+                    const barWidth = Math.min(100, (span.durationMs / maxScalingDuration) * 100);
+                    const barOffset = Math.min(95, (span.startOffsetMs / maxScalingDuration) * 100);
+                    
+                    const isError = span.status === 'error';
+                    
+                    const barBg = isError 
+                      ? 'bg-gradient-to-r from-cyber-red/80 to-cyber-red glow-red' 
+                      : span.service === 'client-ingress-router'
+                      ? 'bg-gradient-to-r from-cyber-blue/80 to-cyber-blue glow-blue'
+                      : span.service === 'nginx-load-balancer'
+                      ? 'bg-gradient-to-r from-cyber-purple/80 to-cyber-purple'
+                      : span.service === 'app-backend-node'
+                      ? 'bg-gradient-to-r from-cyber-yellow/80 to-cyber-yellow glow-yellow'
+                      : 'bg-gradient-to-r from-cyber-green/80 to-cyber-green glow-green';
+
+                    const ServiceIcon = 
+                      span.service.includes('database') ? Database :
+                      span.service.includes('nginx') ? Server :
+                      span.service.includes('app') ? Cpu :
+                      Activity;
+
+                    return (
+                      <div key={idx} className="space-y-1.5">
+                        <div className="flex justify-between items-center text-xs font-mono">
+                          <span className="flex items-center gap-1.5 font-bold text-slate-300">
+                            <ServiceIcon className={`h-3.5 w-3.5 ${isError ? 'text-cyber-red' : 'text-cyber-green'}`} />
+                            <span className="text-[10px] text-slate-500 font-medium">[{span.service}]</span>
+                            <span>{span.name}</span>
+                          </span>
+                          <span className={`font-semibold ${isError ? 'text-cyber-red' : 'text-cyber-green'}`}>
+                            {span.durationMs} ms
+                          </span>
+                        </div>
+                        
+                        {/* Gantt Bar */}
+                        <div className="relative h-4 bg-slate-950/70 border border-slate-900 rounded-sm overflow-hidden flex items-center">
+                          <div 
+                            className={`h-full rounded-sm transition-all duration-700 ${barBg}`}
+                            style={{ 
+                              width: `${barWidth}%`, 
+                              marginLeft: `${barOffset}%` 
+                            }}
+                          />
+                        </div>
+
+                        {/* Span Info Details */}
+                        <div className="text-[10px] font-mono text-slate-500 pl-3 leading-relaxed">
+                          DETAILS // {span.info}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="border-t border-slate-900 pt-4 mt-4 flex justify-between items-center text-[10px] font-mono text-slate-500">
+              <span className="flex items-center gap-1">
+                <Globe className="h-3.5 w-3.5 text-cyber-blue" />
+                SPAN ROOT: client-ingress-router
+              </span>
+              <span>TRACING ENGINE: Grafana Tempo // OpenTelemetry v1.2.0</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* FOOTER */}
       <footer className="text-center py-4 border-t border-slate-900 mt-4 text-[10px] font-mono text-slate-500 flex flex-col md:flex-row justify-between items-center gap-2">
