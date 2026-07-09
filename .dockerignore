@@ -1,0 +1,12 @@
+node_modules
+dist
+.git
+.github
+Dockerfile
+.dockerignore
+npm-debug.log
+README.md
+Cortex-*
+task.md
+implementation_plan.md
+walkthrough.md

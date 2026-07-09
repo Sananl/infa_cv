@@ -1,0 +1,43 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-verify:
+    name: Lint & Build Verification
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile & Verify Production Build
+        run: npm run build
+
+      # ขั้นตอนส่งการแจ้งเตือนหา Discord ผ่าน Webhook JSON
+      - name: Send Webhook Alert to Discord
+        if: success()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK" ]; then
+            echo "Warning: DISCORD_WEBHOOK is not set in GitHub Secrets. Skipping notification."
+          else
+            curl -H "Content-Type: application/json" \
+              -X POST \
+              -d '{"content": "ระบบได้รับการ Redeploy สำเร็จแล้วครับ! 🚀"}' \
+              "$DISCORD_WEBHOOK"
+          fi

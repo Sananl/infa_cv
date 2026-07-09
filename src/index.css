@@ -1,0 +1,119 @@
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@300;400;500;600;700&display=swap');
+
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'Share Tech Mono', monospace;
+  
+  --color-cyber-blue: #0ea5e9;
+  --color-cyber-green: #10b981;
+  --color-cyber-yellow: #eab308;
+  --color-cyber-red: #ef4444;
+  --color-cyber-purple: #a855f7;
+}
+
+body {
+  background-color: #090d16; /* Extra dark slate-950/slate-900 hybrid */
+  color: #f8fafc;
+  font-family: var(--font-sans);
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(14, 165, 233, 0.08) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(168, 85, 247, 0.06) 0px, transparent 50%),
+    radial-gradient(at 50% 100%, rgba(16, 185, 129, 0.05) 0px, transparent 50%),
+    linear-gradient(rgba(15, 23, 42, 0.3) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.3) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 100% 100%, 20px 20px, 20px 20px;
+}
+
+/* Custom Scrollbar for Sci-Fi look */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(14, 165, 233, 0.3);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(14, 165, 233, 0.6);
+}
+
+/* Glassmorphism panel styles */
+.tech-panel {
+  position: relative;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(14, 165, 233, 0.15);
+  backdrop-filter: blur(12px);
+  box-shadow: 
+    0 4px 30px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+.tech-panel:hover {
+  border-color: rgba(14, 165, 233, 0.3);
+  box-shadow: 
+    0 8px 32px rgba(0, 0, 0, 0.5),
+    0 0 15px rgba(14, 165, 233, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* Cyber status glows */
+.glow-blue {
+  box-shadow: 0 0 12px rgba(14, 165, 233, 0.4);
+}
+.glow-green {
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.5);
+}
+.glow-yellow {
+  box-shadow: 0 0 12px rgba(234, 179, 8, 0.4);
+}
+.glow-red {
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.5);
+}
+
+/* Terminal scanner */
+.scanline {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    to bottom,
+    rgba(14, 165, 233, 0) 0%,
+    rgba(14, 165, 233, 0) 10%,
+    rgba(14, 165, 233, 0.03) 50%,
+    rgba(14, 165, 233, 0) 90%,
+    rgba(14, 165, 233, 0) 100%
+  );
+  background-size: 100% 200%;
+  animation: scan 6s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes scan {
+  0% { background-position: 0% 0%; }
+  100% { background-position: 0% 200%; }
+}
+
+/* Terminal text blink */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.terminal-blink {
+  animation: blink 1s infinite;
+}
+
+/* Subgrid or dot matrix background overlay */
+.dot-matrix {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 12px 12px;
+}

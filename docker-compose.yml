@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  # เว็บเซิร์ฟเวอร์ย่อยเครื่องที่ 1
+  app-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    expose:
+      - "80"
+    restart: unless-stopped
+
+  # เว็บเซิร์ฟเวอร์ย่อยเครื่องที่ 2
+  app-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    expose:
+      - "80"
+    restart: unless-stopped
+
+  # ตัวโหลดบาลานเซอร์คอยสลับสลอตจ่ายงานด้วยวิธี Round Robin
+  nginx-lb:
+    image: nginx:stable-alpine
+    ports:
+      - "8082:80"
+    volumes:
+      - ./nginx-lb.conf:/etc/nginx/nginx.conf:ro
+    command: >
+      /bin/sh -c "mkdir -p /usr/share/nginx/html/logs &&
+      touch /usr/share/nginx/html/logs/access.log &&
+      chown -R nginx:nginx /usr/share/nginx/html/logs &&
+      nginx -g 'daemon off;'"
+    depends_on:
+      - app-1
+      - app-2
+    restart: unless-stopped
