@@ -48,3 +48,6 @@ The repository is integrated with GitHub Actions. On every push to the `main` or
 3. Fires a POST webhook to Discord notifying team members of successful deployment.
 
 *Make sure to configure your repository secrets with `DISCORD_WEBHOOK` key.*
+
+---
+*Last updated: 2026-07-09 (Trigger build run)*
