@@ -112,8 +112,9 @@ export default function App() {
   const [systemTime, setSystemTime] = useState<string>('');
   const [systemUptime] = useState<string>('14d 06h 32m 11s');
 
-  // Chart Telemetry History (last 16 points)
+  // Chart Telemetry History (last 150 points for 5m buffer)
   const [chartData, setChartData] = useState<MetricPoint[]>([]);
+  const [timeframe, setTimeframe] = useState<'30s' | '1m' | '5m'>('30s');
 
   // Real Logs
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -177,8 +178,8 @@ export default function App() {
     // Initial Chart Data (baseline values)
     const initialData: MetricPoint[] = [];
     const nowMs = Date.now();
-    for (let i = 15; i >= 0; i--) {
-      const t = new Date(nowMs - i * 5000);
+    for (let i = 150; i >= 0; i--) {
+      const t = new Date(nowMs - i * 2000);
       initialData.push({
         time: t.toTimeString().split(' ')[0].substring(3, 8),
         requests: 0,
@@ -256,7 +257,7 @@ export default function App() {
         const blockRate = newBlocksCount > 0 ? blocks : 0;
 
         const next = [...prev, { time: timeStr, requests: reqRate, wafBlocks: blockRate }];
-        if (next.length > 16) next.shift();
+        if (next.length > 150) next.shift();
         return next;
       });
 
@@ -788,29 +789,52 @@ export default function App() {
         {/* L7 traffic chart (2/3 width) */}
         <div className="xl:col-span-2 tech-panel rounded-xl p-5 flex flex-col justify-between h-[420px]">
           <div>
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800 pb-3 mb-4">
               <div className="flex items-center gap-2">
                 <Activity className="h-4 w-4 text-cyber-blue" />
                 <h2 className="text-sm font-bold font-mono tracking-wider text-slate-200">
                   REAL-TIME L7 INGRESS TRAFFIC (COMPUTED FROM NGINX)
                 </h2>
               </div>
-              <div className="flex items-center gap-4 text-[10px] font-mono">
-                <span className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-cyber-blue inline-block" />
-                  <span className="text-slate-400">Total TPS</span>
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-cyber-red inline-block" />
-                  <span className="text-slate-400">WAF Blocks</span>
-                </span>
+              
+              <div className="flex flex-wrap items-center gap-4 text-[10px] font-mono">
+                {/* Timeframe Selector Segmented Controls */}
+                <div className="flex items-center gap-1 bg-slate-950/80 border border-slate-800/80 rounded p-0.5">
+                  {(['30s', '1m', '5m'] as const).map((tf) => (
+                    <button
+                      key={tf}
+                      onClick={() => setTimeframe(tf)}
+                      className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase transition-all ${
+                        timeframe === tf
+                          ? 'bg-cyber-blue/20 text-cyber-blue border border-cyber-blue/30'
+                          : 'text-slate-500 hover:text-slate-300 border border-transparent'
+                      }`}
+                    >
+                      {tf === '30s' ? '30 Sec' : tf === '1m' ? '1 Min' : '5 Min'}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-cyber-blue inline-block" />
+                    <span className="text-slate-400">Total TPS</span>
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-cyber-red inline-block" />
+                    <span className="text-slate-400">WAF Blocks</span>
+                  </span>
+                </div>
               </div>
             </div>
           </div>
 
           <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData} margin={{ top: 10, right: 5, left: -20, bottom: 0 }}>
+              <AreaChart 
+                data={chartData.slice(-(timeframe === '30s' ? 15 : timeframe === '1m' ? 30 : 150))} 
+                margin={{ top: 10, right: 5, left: -20, bottom: 0 }}
+              >
                 <defs>
                   <linearGradient id="colorRequests" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.25} />
