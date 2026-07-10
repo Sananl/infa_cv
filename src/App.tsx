@@ -80,9 +80,10 @@ export default function App() {
   // Traffic generation states (for UI visual feedback)
   const [trafficMode, setTrafficMode] = useState<'idle' | 'normal' | 'attack'>('idle');
 
-  // Time & Uptime
+  // Time & Uptime (Dynamic Session Tracker)
   const [systemTime, setSystemTime] = useState<string>('');
-  const [systemUptime] = useState<string>('14d 06h 32m 11s');
+  const [systemUptime, setSystemUptime] = useState<string>('00h 00m 00s');
+  const sessionStart = useRef<number>(Date.now());
 
   // Real Logs
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -116,6 +117,13 @@ export default function App() {
     const updateTime = () => {
       const now = new Date();
       setSystemTime(now.toTimeString().split(' ')[0]);
+
+      // Calculate elapsed time since dashboard session started
+      const diffSecs = Math.floor((Date.now() - sessionStart.current) / 1000);
+      const hours = Math.floor(diffSecs / 3600).toString().padStart(2, '0');
+      const mins = Math.floor((diffSecs % 3600) / 60).toString().padStart(2, '0');
+      const secs = (diffSecs % 60).toString().padStart(2, '0');
+      setSystemUptime(`${hours}h ${mins}m ${secs}s`);
     };
     updateTime();
     const clockInterval = setInterval(updateTime, 1000);
