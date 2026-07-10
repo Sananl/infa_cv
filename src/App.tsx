@@ -134,7 +134,7 @@ export default function App() {
     for (let i = 150; i >= 0; i--) {
       const t = new Date(nowMs - i * 2000);
       initialData.push({
-        time: t.toTimeString().split(' ')[0].substring(3, 8),
+        time: t.toTimeString().split(' ')[0],
         requests: 0,
         wafBlocks: 0
       });
@@ -201,7 +201,7 @@ export default function App() {
       }
 
       // Update Chart Telemetry with real rates
-      const timeStr = new Date().toTimeString().split(' ')[0].substring(3, 8);
+      const timeStr = new Date().toTimeString().split(' ')[0];
       setChartData(prev => {
         const tps = Math.round(newRequestsCount / 2); 
         const blocks = Math.round(newBlocksCount / 2);
